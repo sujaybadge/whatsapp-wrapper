@@ -2,6 +2,21 @@
 import mime from 'mime-types'
 
 export async function registerMessageHandlers(sock) {
+  const postbackUrl = process.env.POSTBACK_URL
+
+  const sendPostback = async (data) => {
+    if (!postbackUrl) return
+    try {
+      console.log(' Sending postback to:', postbackUrl)
+      await fetch(postbackUrl, {
+        method: 'POST',
+        body: JSON.stringify(data),
+        headers: { 'Content-Type': 'application/json' },
+      })
+    } catch (e) {
+      console.error(' Failed to send postback:', e.message)
+    }
+  }
   sock.ev.on('messages.upsert', async (msgUpsert) => {
     const msg = msgUpsert.messages?.[0]
     if (!msg?.message) return
@@ -11,6 +26,9 @@ export async function registerMessageHandlers(sock) {
       msg.message.extendedTextMessage?.text ||
       ''
     console.log('📩', sender, '→', text)
+
+    // Send a postback if URL is configured
+    await sendPostback(msgUpsert)
 
     // simple echo (optional)
     if (text.toLowerCase().startsWith('ping'))

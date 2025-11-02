@@ -24,6 +24,13 @@ let sock
 // --- ROUTES ---
 app.get('/', (_req, res) => res.send('Baileys WhatsApp API is running 🚀'))
 
+// Test endpoint for receiving postbacks
+app.post('/webhook', (req, res) => {
+  console.log('✅ Received postback on /webhook:')
+  console.log(JSON.stringify(req.body, null, 2))
+  res.status(200).send('OK')
+})
+
 app.get('/qr.png', async (_req, res) => {
   const qr = getLatestQR()
   if (!qr) return res.status(404).send('No QR available yet')

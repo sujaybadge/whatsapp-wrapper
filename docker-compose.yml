@@ -21,6 +21,7 @@ services:
       PGUSER: ${PGUSER:-baileys}
       PGPASSWORD: ${PGPASSWORD:-baileys}
       PGDATABASE: ${PGDATABASE:-baileys}
+      POSTBACK_URL: ${POSTBACK_URL:-http://localhost:3000/webhook}
     depends_on:
       - postgres
     ports:

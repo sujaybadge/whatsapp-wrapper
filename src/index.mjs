@@ -2,12 +2,17 @@
 import express from 'express'
 import bodyParser from 'body-parser'
 import QR from 'qrcode'
+import multer from 'multer'
 import { initInstance, getInstance, getLatestQR } from './instanceManager.mjs'
 import { registerMessageHandlers, sendText, sendFile } from './messageHandlers.mjs'
 
 
 const app = express()
 app.use(bodyParser.json({ limit: '25mb' }))
+
+// --- Multer Setup for File Uploads ---
+// We'll store files in memory as buffers
+const upload = multer({ storage: multer.memoryStorage() })
 
 // Initialize WhatsApp socket on startup
 let sock
@@ -41,11 +46,18 @@ app.post('/sendText', async (req, res) => {
 })
 
 // send file (url or path)
-app.post('/sendFile', async (req, res) => {
+app.post('/sendFile', upload.single('file'), async (req, res) => {
   try {
-    const { jid, file, fileName } = req.body
+    const { jid, fileName, caption } = req.body
+    if (!jid) {
+      return res.status(400).json({ error: 'jid is required' })
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'File is required' })
+    }
+
     const sock = getInstance()
-    await sendFile(sock, jid, file, fileName)
+    await sendFile(sock, jid, req.file.buffer, fileName || req.file.originalname, caption)
     res.json({ status: 'sent' })
   } catch (e) {
     console.error(e)

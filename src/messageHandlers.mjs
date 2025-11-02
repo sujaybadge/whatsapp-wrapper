@@ -1,6 +1,4 @@
 // src/messageHandlers.mjs
-import fs from 'fs'
-import axios from 'axios'
 import mime from 'mime-types'
 
 export async function registerMessageHandlers(sock) {
@@ -25,27 +23,20 @@ export async function sendText(sock, jid, text) {
   await sock.sendMessage(jid, { text })
 }
 
-export async function sendFile(sock, jid, filePathOrUrl, fileName) {
-  if (!jid || !filePathOrUrl) throw new Error('jid and file required')
-  let data
-  if (/^https?:\/\//.test(filePathOrUrl)) {
-    const res = await axios.get(filePathOrUrl, { responseType: 'arraybuffer' })
-    data = Buffer.from(res.data)
-  } else {
-    data = fs.readFileSync(filePathOrUrl)
-  }
-
+export async function sendFile(sock, jid, fileBuffer, fileName, caption) {
+  if (!jid || !fileBuffer) throw new Error('jid and file are required')
   const mimeType =
-    mime.lookup(fileName || filePathOrUrl) || 'application/octet-stream'
+    mime.lookup(fileName) || 'application/octet-stream'
   const options = {
     mimetype: mimeType,
-    fileName: fileName || filePathOrUrl.split('/').pop(),
+    fileName: fileName,
+    caption: caption,
   }
 
-  if (mimeType.startsWith('image/')) options.image = data
-  else if (mimeType.startsWith('video/')) options.video = data
-  else if (mimeType.startsWith('audio/')) options.audio = data
-  else options.document = data
+  if (mimeType.startsWith('image/')) options.image = fileBuffer
+  else if (mimeType.startsWith('video/')) options.video = fileBuffer
+  else if (mimeType.startsWith('audio/')) options.audio = fileBuffer
+  else options.document = fileBuffer
 
   await sock.sendMessage(jid, options)
 }

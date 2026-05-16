@@ -1,6 +1,7 @@
 // src/instanceManager.mjs
 import makeWASocket, { DisconnectReason } from '@whiskeysockets/baileys'
 import { createPostgresAuthState } from './instance.mjs'
+import { clearAllAuth } from './db.mjs'
 
 let sock = null
 let latestQR = null
@@ -69,4 +70,34 @@ export function getInstance() {
 
 export function getLatestQR() {
   return latestQR
+}
+
+export async function logoutInstance() {
+  try {
+    if (sock) {
+      // attempt graceful logout if supported
+      if (typeof sock.logout === 'function') {
+        try {
+          await sock.logout()
+        } catch (e) {
+          console.warn('Logout call failed:', e?.message || e)
+        }
+      }
+      try {
+        // close underlying connection if available
+        if (sock.ws) sock.ws.close()
+      } catch (e) {
+        // ignore
+      }
+    }
+  } finally {
+    // clear saved credentials so next init re-pairs
+    try {
+      await clearAllAuth()
+    } catch (e) {
+      console.warn('Failed to clear auth storage:', e?.message || e)
+    }
+    sock = null
+    latestQR = null
+  }
 }

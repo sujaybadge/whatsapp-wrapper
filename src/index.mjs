@@ -3,7 +3,7 @@ import express from 'express'
 import bodyParser from 'body-parser'
 import QR from 'qrcode'
 import multer from 'multer'
-import { initInstance, getInstance, getLatestQR } from './instanceManager.mjs'
+import { initInstance, getInstance, getLatestQR, logoutInstance } from './instanceManager.mjs'
 import { registerMessageHandlers, sendText, sendFile } from './messageHandlers.mjs'
 
 
@@ -33,10 +33,21 @@ app.post('/webhook', (req, res) => {
 
 app.get('/qr.png', async (_req, res) => {
   const qr = getLatestQR()
-  if (!qr) return res.status(404).send('No QR available yet')
+  if (!qr) return res.status(404).send  ('No QR available yet')
   const img = await QR.toBuffer(qr, { width: 300, margin: 1 })
   res.setHeader('Content-Type', 'image/png')
   res.send(img)
+})
+
+// logout and clear credentials
+app.post('/logout', async (_req, res) => {
+  try {
+    await logoutInstance()
+    res.json({ status: 'logged_out' })
+  } catch (e) {
+    console.error('Logout failed', e)
+    res.status(500).json({ error: e?.message || 'failed' })
+  }
 })
 
 // send text

@@ -1,33 +1,31 @@
-import { Pool } from 'pg'
+import Database from 'better-sqlite3'
 import { BufferJSON } from '@whiskeysockets/baileys'
 
-// Helpers to store/revive Buffers & typed arrays inside JSONB
-const encodeForJsonB = (value) => JSON.parse(JSON.stringify(value, BufferJSON.replacer))
-const decodeFromJsonB = (value) => JSON.parse(JSON.stringify(value), BufferJSON.reviver)
+const DB_PATH = process.env.SQLITE_FILE || 'data.sqlite'
+const db = new Database(DB_PATH)
 
-export const pool = new Pool({
-  host: process.env.PGHOST || 'localhost',
-  port: Number(process.env.PGPORT || 5432),
-  user: process.env.PGUSER || 'postgres',
-  password: process.env.PGPASSWORD || '',
-  database: process.env.PGDATABASE || 'postgres',
-  max: 10,
-  idleTimeoutMillis: 30_000,
-})
+// Helpers to store/revive Buffers & typed arrays inside JSON text
+const encodeForSqlite = (value) => JSON.stringify(value, BufferJSON.replacer)
+const decodeFromSqlite = (value) => JSON.parse(value, BufferJSON.reviver)
 
 export async function ensureTables() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS auth_kv (
+  db.prepare(
+    `CREATE TABLE IF NOT EXISTS auth_kv (
       key   TEXT PRIMARY KEY,
-      value JSONB NOT NULL
-    );
-  `)
+      value TEXT NOT NULL
+    );`
+  ).run()
 }
 
 export async function readAuthData(key) {
-  const { rows } = await pool.query('SELECT value FROM auth_kv WHERE key = $1', [key])
-  if (!rows[0]) return undefined
-  return decodeFromJsonB(rows[0].value)
+  const row = db.prepare('SELECT value FROM auth_kv WHERE key = ?').get(key)
+  if (!row) return undefined
+  try {
+    return decodeFromSqlite(row.value)
+  } catch (err) {
+    console.warn('[DB WARN] Failed to parse value for', key, err.message)
+    return undefined
+  }
 }
 
 export async function writeAuthData(key, value) {
@@ -36,52 +34,60 @@ export async function writeAuthData(key, value) {
     return
   }
   try {
-    const enc = encodeForJsonB(value)
-    await pool.query(
-      'INSERT INTO auth_kv(key, value) VALUES($1, $2) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value',
-      [key, enc]
-    )
+    const enc = encodeForSqlite(value)
+    db.prepare('INSERT OR REPLACE INTO auth_kv(key, value) VALUES(?, ?)').run(key, enc)
   } catch (err) {
     console.warn('[DB WARN] Skipped malformed JSON for', key, err.message)
   }
 }
 
 export async function removeAuthData(key) {
-  await pool.query('DELETE FROM auth_kv WHERE key = $1', [key])
+  db.prepare('DELETE FROM auth_kv WHERE key = ?').run(key)
 }
 
 // -------- batch helpers used by setMulti/clear --------
 export async function keysReadMany(type, ids) {
   if (!ids?.length) return {}
   const keys = ids.map((id) => `${type}-${id}`)
-  const { rows } = await pool.query('SELECT key, value FROM auth_kv WHERE key = ANY($1)', [keys])
+  const placeholders = keys.map(() => '?').join(',')
+  const rows = db
+    .prepare(`SELECT key, value FROM auth_kv WHERE key IN (${placeholders})`)
+    .all(...keys)
   const out = {}
   for (const r of rows) {
     const id = r.key.substring(`${type}-`.length)
-    out[id] = decodeFromJsonB(r.value)
+    try {
+      out[id] = decodeFromSqlite(r.value)
+    } catch (err) {
+      console.warn('[DB WARN] Failed to parse batch value for', r.key, err.message)
+    }
   }
   return out
 }
 
 export async function keysUpsertMany(entries) {
   if (!entries?.length) return
-  const valid = entries.filter(e => e.value != null && typeof e.value !== 'undefined')
+  const valid = entries.filter((e) => e.value != null && typeof e.value !== 'undefined')
   if (!valid.length) return
-  const valuesSql = valid.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`).join(',')
-  const params = []
-  for (const { type, id, value } of valid) {
-    params.push(`${type}-${id}`, encodeForJsonB(value))
-  }
-  const sql = `INSERT INTO auth_kv(key, value) VALUES ${valuesSql}
-               ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`
+  const insert = db.prepare('INSERT OR REPLACE INTO auth_kv(key, value) VALUES(?, ?)')
+  const insertMany = db.transaction((rows) => {
+    for (const [k, v] of rows) insert.run(k, v)
+  })
+  const rows = valid.map(({ type, id, value }) => [`${type}-${id}`, encodeForSqlite(value)])
   try {
-    await pool.query(sql, params)
+    insertMany(rows)
   } catch (err) {
     console.warn('[DB WARN] Skipped some malformed key batch:', err.message)
   }
 }
+
 export async function keysDeleteMany(type, ids) {
   if (!ids?.length) return
   const keys = ids.map((id) => `${type}-${id}`)
-  await pool.query('DELETE FROM auth_kv WHERE key = ANY($1)', [keys])
+  const placeholders = keys.map(() => '?').join(',')
+  db.prepare(`DELETE FROM auth_kv WHERE key IN (${placeholders})`).run(...keys)
+}
+
+export async function clearAllAuth() {
+  db.prepare('DELETE FROM auth_kv').run()
 }

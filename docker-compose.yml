@@ -1,32 +1,17 @@
+version: '3.8'
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: pg-baileys
-    environment:
-      POSTGRES_USER: ${PGUSER:-baileys}
-      POSTGRES_PASSWORD: ${PGPASSWORD:-baileys}
-      POSTGRES_DB: ${PGDATABASE:-baileys}
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
   app:
     build: .
     container_name: baileys-app
     environment:
       PORT: ${PORT:-3000}
-      PGHOST: postgres
-      PGPORT: 5432
-      PGUSER: ${PGUSER:-baileys}
-      PGPASSWORD: ${PGPASSWORD:-baileys}
-      PGDATABASE: ${PGDATABASE:-baileys}
+      SQLITE_FILE: /data/data.sqlite
       POSTBACK_URL: ${POSTBACK_URL:-http://localhost:3000/webhook}
-    depends_on:
-      - postgres
     ports:
       - "${PORT:-3000}:3000"
+    volumes:
+      - sqlite-data:/data
     command: ["npm", "start"]
 
 volumes:
-  pgdata:
+  sqlite-data:
